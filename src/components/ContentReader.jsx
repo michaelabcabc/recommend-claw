@@ -129,7 +129,7 @@ export default function ContentReader({ task, onComplete, onBack, onChat }) {
               用一句话总结今天学到的规律：
             </p>
             <p className="text-[14px] text-[#BBBBBB] mb-3">
-              利率上升时，债券价格会……
+              {task.concept ? `关于「${task.concept}」，我学到了……` : '今天最重要的一点是……'}
             </p>
             <textarea
               value={summary}

@@ -1,10 +1,21 @@
 -- ============================================================
--- Recommend Claw — Supabase 数据库初始化脚本
--- 在 Supabase SQL Editor 中运行此文件
+-- Recommend Claw — Supabase 数据库初始化脚本（完整版）
+-- 请在 Supabase SQL Editor 中运行此文件
 -- ============================================================
 
+-- 清理旧表（如果有）
+drop table if exists public.daily_summaries cascade;
+drop table if exists public.chat_messages cascade;
+drop table if exists public.chat_sessions cascade;
+drop table if exists public.tasks cascade;
+drop table if exists public.streaks cascade;
+drop table if exists public.goals cascade;
+drop table if exists public.profiles cascade;
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+
 -- 1. profiles 表
-create table if not exists public.profiles (
+create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text,
   created_at timestamptz default now()
@@ -16,7 +27,7 @@ create policy "Users can update own profile"
   on public.profiles for update using (auth.uid() = id);
 
 -- 2. goals 表
-create table if not exists public.goals (
+create table public.goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   goal text not null,
@@ -30,21 +41,26 @@ alter table public.goals enable row level security;
 create policy "Users can manage own goals"
   on public.goals for all using (auth.uid() = user_id);
 
--- 3. tasks 表
-create table if not exists public.tasks (
+-- 3. tasks 表（完整字段）
+create table public.tasks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   goal_id uuid references public.goals(id) on delete cascade,
   date date not null,
   day_number integer default 1,
-  title text not null,
+  priority integer default 1,
   type text not null check (type in ('action', 'content')),
-  duration text,
+  emoji text default '✦',
+  title text not null,
   badge text,
   concept text,
+  description text default '',
+  duration text default '10 分钟',
+  goal_label text default '',
   content jsonb,
-  done boolean default false,
-  done_at timestamptz,
+  completion_message text default '',
+  status text default 'pending' check (status in ('pending', 'done')),
+  completed_at timestamptz,
   created_at timestamptz default now()
 );
 alter table public.tasks enable row level security;
@@ -52,7 +68,7 @@ create policy "Users can manage own tasks"
   on public.tasks for all using (auth.uid() = user_id);
 
 -- 4. streaks 表
-create table if not exists public.streaks (
+create table public.streaks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique references auth.users(id) on delete cascade,
   current_streak integer default 0,
@@ -65,10 +81,11 @@ create policy "Users can manage own streak"
   on public.streaks for all using (auth.uid() = user_id);
 
 -- 5. chat_sessions 表
-create table if not exists public.chat_sessions (
+create table public.chat_sessions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   task_id uuid references public.tasks(id) on delete set null,
+  task_title text default '',
   created_at timestamptz default now()
 );
 alter table public.chat_sessions enable row level security;
@@ -76,7 +93,7 @@ create policy "Users can manage own chat sessions"
   on public.chat_sessions for all using (auth.uid() = user_id);
 
 -- 6. chat_messages 表
-create table if not exists public.chat_messages (
+create table public.chat_messages (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.chat_sessions(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -89,12 +106,12 @@ create policy "Users can manage own messages"
   on public.chat_messages for all using (auth.uid() = user_id);
 
 -- 7. daily_summaries 表
-create table if not exists public.daily_summaries (
+create table public.daily_summaries (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   task_id uuid references public.tasks(id) on delete set null,
   date date not null,
-  content text not null,
+  summary text not null,
   created_at timestamptz default now()
 );
 alter table public.daily_summaries enable row level security;
@@ -122,7 +139,6 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();

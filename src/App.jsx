@@ -32,8 +32,10 @@ function getDayNumber(goalCreatedAt) {
 export default function App() {
   // ─── Auth ───────────────────────────────────────────────
   const [session, setSession] = useState(undefined) // undefined = loading
+  const [dataLoading, setDataLoading] = useState(true) // true until user data fetched
   const [userProfile, setUserProfile] = useState({ name: '', streak: 0 })
   const [activeGoal, setActiveGoal] = useState(null)
+  const [showOnboarding, setShowOnboarding] = useState(false)
 
   // ─── App state ──────────────────────────────────────────
   const [tasks, setTasks] = useState([])
@@ -50,9 +52,12 @@ export default function App() {
   // ─── Auth listener ──────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) setDataLoading(false) // not logged in, nothing to load
       setSession(session)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) setDataLoading(false)
+      else setDataLoading(true) // new session → load user data
       setSession(session)
     })
     return () => subscription.unsubscribe()
@@ -77,9 +82,13 @@ export default function App() {
       setActiveGoal(goal)
       if (goal) {
         loadTasksForToday(user.id, goal)
+      } else {
+        setShowOnboarding(true)
       }
     } catch (err) {
       console.error('Failed to load user data:', err)
+    } finally {
+      setDataLoading(false)
     }
   }
 
@@ -177,10 +186,12 @@ export default function App() {
     const today = getTodayStr()
 
     // Save name to profile
-    await db.updateProfileName(userId, form.name || userProfile.name)
-    setUserProfile(prev => ({ ...prev, name: form.name || prev.name }))
+    try {
+      await db.updateProfileName(userId, form.name || userProfile.name)
+      setUserProfile(prev => ({ ...prev, name: form.name || prev.name }))
+    } catch (_) { /* non-critical */ }
 
-    // Create goal
+    // Create goal — if this fails we must re-throw so Onboarding shows error
     const goal = await db.createGoal(userId, {
       goal: form.goal,
       category: form.category || 'other',
@@ -189,20 +200,26 @@ export default function App() {
     })
     setActiveGoal(goal)
 
-    // Generate tasks
-    const generated = await generateTasks({
-      goal: goal.goal,
-      category: goal.category,
-      motivation: goal.motivation,
-      daily_minutes: goal.daily_minutes,
-      day_number: 1,
-    })
-    const savedTasks = await db.createTasks(userId, goal.id, today, generated)
-    setTasks(savedTasks)
+    // Generate tasks — API has its own fallback so this shouldn't throw
+    try {
+      const generated = await generateTasks({
+        goal: goal.goal,
+        category: goal.category,
+        motivation: goal.motivation,
+        daily_minutes: goal.daily_minutes,
+        day_number: 1,
+      })
+      const savedTasks = await db.createTasks(userId, goal.id, today, generated)
+      setTasks(savedTasks)
+    } catch (err) {
+      console.error('Task creation failed:', err)
+      // Goal was saved; tasks will be generated on next load
+    }
+    setShowOnboarding(false)
   }
 
   // ─── Loading / Auth gates ────────────────────────────────
-  if (session === undefined) {
+  if (session === undefined || dataLoading) {
     return (
       <div className="min-h-screen bg-[#F7F6F3] flex items-center justify-center">
         <div className="text-[#BBBBBB] text-[14px]">加载中…</div>
@@ -212,10 +229,6 @@ export default function App() {
 
   if (!session) {
     return <Auth />
-  }
-
-  if (!activeGoal) {
-    return <Onboarding onDone={handleOnboardingDone} />
   }
 
   const pending = tasks.filter(t => t.status === 'pending')
@@ -262,13 +275,24 @@ export default function App() {
                   早上好，{userProfile.name}。
                 </h1>
               </div>
-              <button
-                onClick={() => setActiveGoal(null)}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] text-[#888] text-[18px] leading-none active:opacity-60 mt-1 flex-shrink-0"
-                title="新建目标"
-              >
-                +
-              </button>
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  onClick={() => setShowOnboarding(true)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] text-[#888] text-[18px] leading-none active:opacity-60 flex-shrink-0"
+                  title="新建目标"
+                >
+                  +
+                </button>
+                <button
+                  onClick={() => supabase.auth.signOut()}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] active:opacity-60 flex-shrink-0"
+                  title="退出登录"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M5 12H2.5C2.1 12 1.75 11.85 1.5 11.6C1.25 11.35 1.1 11 1.1 10.6V3.4C1.1 3 1.25 2.65 1.5 2.4C1.75 2.15 2.1 2 2.5 2H5M9.5 10L12.9 7L9.5 4M12.9 7H5" stroke="#AAAAAA" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </div>
             </div>
             {tasksLoading ? (
               <p className="text-[15px] text-[#888] mt-1">AI 正在生成你今天的任务…</p>
@@ -365,6 +389,14 @@ export default function App() {
           sessionId={chatSessionId}
           onSessionCreated={setChatSessionId}
           onClose={() => { setChatTask(null); setChatSessionId(null) }}
+        />
+      )}
+
+      {/* Onboarding 弹出层 */}
+      {showOnboarding && (
+        <Onboarding
+          onDone={handleOnboardingDone}
+          onCancel={activeGoal ? () => setShowOnboarding(false) : null}
         />
       )}
     </div>

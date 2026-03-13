@@ -7,8 +7,17 @@ export async function getProfile(userId) {
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single()
+    .maybeSingle()
   if (error) throw error
+  // If no profile row (user signed up before trigger was created), upsert one
+  if (!data) {
+    const { data: created } = await supabase
+      .from('profiles')
+      .upsert({ id: userId })
+      .select()
+      .maybeSingle()
+    return created
+  }
   return data
 }
 
@@ -122,8 +131,16 @@ export async function getStreak(userId) {
     .from('streaks')
     .select('*')
     .eq('user_id', userId)
-    .single()
-  if (error) return { current_streak: 0, longest_streak: 0, last_active_date: null }
+    .maybeSingle()
+  if (error || !data) {
+    // No row yet — create one
+    const { data: created } = await supabase
+      .from('streaks')
+      .upsert({ user_id: userId, current_streak: 0, longest_streak: 0 })
+      .select()
+      .maybeSingle()
+    return created || { current_streak: 0, longest_streak: 0, last_active_date: null }
+  }
   return data
 }
 

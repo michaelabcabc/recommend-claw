@@ -16,6 +16,87 @@ const CATEGORY_EMOJIS = {
   other: '✦',
 }
 
+// 当 AI 不可用时，根据目标类型生成有意义的任务模板
+function buildFallbackTasks({ goal, category, motivation, daily_minutes, day_number }) {
+  const categoryLabel = CATEGORY_LABELS[category] || '个人目标'
+  const mainEmoji = CATEGORY_EMOJIS[category] || '✦'
+  const shortGoal = goal.slice(0, 12)
+  const actionTime = Math.max(10, Math.round(daily_minutes * 0.5))
+  const readTime = Math.min(10, Math.max(5, Math.round(daily_minutes * 0.3)))
+
+  const templates = {
+    learn: {
+      action1: { emoji: '📖', title: `学习${shortGoal}`, description: '专注阅读，不中断。', duration: `${actionTime} 分钟`, completion_message: `你今天又推进了一步。\n\n知识的积累就是这样一天一天来的。` },
+      content: { concept: '今日概念', title: '理解核心概念', description: '读懂一个新概念。' },
+      action2: { emoji: '✏️', title: '写下今天的收获', description: '用自己的话写一遍，才真正理解。', duration: '5 分钟', completion_message: '写下来的东西，才真正属于你。' },
+    },
+    work: {
+      action1: { emoji: '🎯', title: `推进${shortGoal}`, description: '专注核心任务，排除干扰。', duration: `${actionTime} 分钟`, completion_message: `专注完成了！\n\n每次深度工作都在积累动能。` },
+      content: { concept: '方法论', title: '学一个工作方法', description: '学一个能直接用的方法。' },
+      action2: { emoji: '📋', title: '复盘今天进展', description: '记录进展，为明天做准备。', duration: '5 分钟', completion_message: '好的复盘是下一次成功的起点。' },
+    },
+    health: {
+      action1: { emoji: '🏃', title: `执行健康计划`, description: '今天的运动，是对未来的投资。', duration: `${actionTime} 分钟`, completion_message: `完成了！\n\n你的身体记得每一次努力。` },
+      content: { concept: '健康知识', title: '了解一个健康原理', description: '知其然也知其所以然。' },
+      action2: { emoji: '💧', title: '记录今天状态', description: '追踪让习惯更容易坚持。', duration: '3 分钟', completion_message: '坚持记录的人，最终都会坚持下去。' },
+    },
+    other: {
+      action1: { emoji: mainEmoji, title: `推进${shortGoal}`, description: '迈出今天最重要的一步。', duration: `${actionTime} 分钟`, completion_message: `你做到了。\n\n每一步都算数。` },
+      content: { concept: '相关知识', title: '学习相关知识', description: '了解背景，行动更有方向。' },
+      action2: { emoji: '📝', title: '记录今天的思考', description: '写下今天最重要的一个想法。', duration: '5 分钟', completion_message: '写下来的想法，才真正属于你。' },
+    },
+  }
+
+  const t = templates[category] || templates.other
+
+  return [
+    {
+      priority: 1,
+      type: 'action',
+      emoji: t.action1.emoji,
+      title: t.action1.title,
+      badge: null,
+      concept: null,
+      description: t.action1.description,
+      duration: t.action1.duration,
+      goal_label: categoryLabel,
+      content: null,
+      completion_message: t.action1.completion_message,
+    },
+    {
+      priority: 2,
+      type: 'content',
+      emoji: '📖',
+      title: t.content.title,
+      badge: `第 ${day_number} 天`,
+      concept: t.content.concept,
+      description: t.content.description,
+      duration: `${readTime} 分钟`,
+      goal_label: categoryLabel,
+      content: [
+        { type: 'news', heading: '今日背景', text: `关于「${goal}」：${motivation}。今天继续在这个方向上深入，积累是最重要的事。` },
+        { type: 'concept', heading: '核心思路', text: `实现「${goal}」的关键在于持续行动和反思。每天做一点，比偶尔大爆发更有效。知识和能力都是通过不断练习和反思积累的，而不是靠一次性的努力得来的。` },
+        { type: 'rule', heading: '记住这一点', text: `今天的行动 × 每天坚持 = 一个月后的质变。\n不需要完美，只需要出现。` },
+        { type: 'connect', heading: '和你的目标连起来', text: `你的目标是「${goal}」。每次你坐下来学习或行动，都是在向这个目标靠近。动力来自于「${motivation}」，这是你前进的根本原因。` },
+      ],
+      completion_message: `学习完成！\n\n把今天学到的用一句话写下来，是最好的巩固方式。`,
+    },
+    {
+      priority: 3,
+      type: 'action',
+      emoji: t.action2.emoji,
+      title: t.action2.title,
+      badge: null,
+      concept: null,
+      description: t.action2.description,
+      duration: t.action2.duration,
+      goal_label: categoryLabel,
+      content: null,
+      completion_message: t.action2.completion_message,
+    },
+  ]
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   if (req.method === 'OPTIONS') return res.status(200).end()
@@ -106,7 +187,6 @@ export default async function handler(req, res) {
     })
 
     const raw = response.content[0].text.trim()
-    // Extract JSON from the response (in case there's extra text)
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('No JSON in response')
 
@@ -115,27 +195,10 @@ export default async function handler(req, res) {
 
     return res.status(200).json(parsed)
   } catch (err) {
-    console.error('Task generation error:', err)
-    // Fallback: return 2 safe generic tasks
+    console.error('Task generation error:', err.message)
+    // Smart fallback based on goal category
     return res.status(200).json({
-      tasks: [
-        {
-          priority: 1, type: 'action', emoji: mainEmoji,
-          title: `推进「${goal.slice(0, 8)}」`, badge: null, concept: null,
-          description: '今天迈出一步，小也算。',
-          duration: `${Math.round(daily_minutes * 0.6)} 分钟`,
-          goal_label: categoryLabel, content: null,
-          completion_message: '你做到了。\n\n每一步都算数。',
-        },
-        {
-          priority: 2, type: 'action', emoji: '📝',
-          title: '记录今天的思考', badge: null, concept: null,
-          description: '写下今天最重要的一个想法。',
-          duration: '5 分钟',
-          goal_label: categoryLabel, content: null,
-          completion_message: '写下来的想法，才真正属于你。',
-        },
-      ],
+      tasks: buildFallbackTasks({ goal, category, motivation, daily_minutes, day_number }),
     })
   }
 }

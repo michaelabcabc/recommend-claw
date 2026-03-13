@@ -84,9 +84,14 @@ export default function ChatPanel({ task, goal, motivation, userId, sessionId, o
     setMessages(history)
     setLoading(true)
 
-    // Persist user message
-    const sid = await getOrCreateSession()
-    await db.saveMessage(sid, userId, 'user', userText)
+    // Persist user message (non-blocking, don't crash if DB fails)
+    let sid = null
+    try {
+      sid = await getOrCreateSession()
+      await db.saveMessage(sid, userId, 'user', userText)
+    } catch (err) {
+      console.error('Failed to save message to DB:', err)
+    }
 
     // Append streaming assistant placeholder
     setMessages(prev => [...prev, { role: 'assistant', content: '', streaming: true }])
@@ -112,12 +117,14 @@ export default function ChatPanel({ task, goal, motivation, userId, sessionId, o
           return [...prev.slice(0, -1), { ...last, streaming: false }]
         })
         setLoading(false)
-        await db.saveMessage(sid, userId, 'assistant', finalContent)
+        if (sid && finalContent) {
+          try { await db.saveMessage(sid, userId, 'assistant', finalContent) } catch (_) {}
+        }
       },
       onError: (err) => {
         setMessages(prev => [
           ...prev.slice(0, -1),
-          { role: 'assistant', content: '遇到了一点问题，请稍后再试。' },
+          { role: 'assistant', content: '网络出现了问题，请稍后重试。' },
         ])
         setLoading(false)
         console.error(err)
