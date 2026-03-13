@@ -139,7 +139,7 @@ export default function ContentReader({ task, onComplete, onBack, onChat }) {
               autoFocus
             />
             <button
-              onClick={() => onComplete(task)}
+              onClick={() => onComplete(task, summary)}
               disabled={summary.trim().length < 3}
               className="w-full bg-[#1A1A1A] text-white rounded-xl py-3.5 text-[15px] font-medium mt-4 disabled:opacity-30 active:opacity-80 transition-opacity"
             >

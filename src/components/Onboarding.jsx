@@ -22,10 +22,10 @@ export default function Onboarding({ onDone }) {
     motivation: '',
   })
 
-  function next() {
+  async function next() {
     if (step === 3) {
       setStep('generating')
-      setTimeout(() => onDone(form), 2200)
+      await onDone(form)
     } else {
       setStep(s => s + 1)
     }
