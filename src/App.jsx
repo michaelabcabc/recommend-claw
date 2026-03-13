@@ -8,6 +8,7 @@ import CompletionRitual from './components/CompletionRitual.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
 import Onboarding from './components/Onboarding.jsx'
 import Auth from './components/Auth.jsx'
+import ProfileSheet from './components/ProfileSheet.jsx'
 
 const DAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 const MONTHS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月']
@@ -15,6 +16,15 @@ const MONTHS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','
 function formatDate() {
   const d = new Date()
   return `${DAYS[d.getDay()]}  ${MONTHS[d.getMonth()]}${d.getDate()}日`
+}
+
+function getTimeGreeting(name) {
+  const hour = new Date().getHours()
+  const who = name || '你'
+  if (hour < 5)  return `夜深了，${who}。`
+  if (hour < 12) return `早上好，${who}。`
+  if (hour < 18) return `下午好，${who}。`
+  return `晚上好，${who}。`
 }
 
 function getTodayStr() {
@@ -47,6 +57,7 @@ export default function App() {
   const [tooHardId, setTooHardId] = useState(null)
   const [chatTask, setChatTask] = useState(null)
   const [chatSessionId, setChatSessionId] = useState(null)
+  const [showProfile, setShowProfile] = useState(false)
   const currentDateRef = useRef(getTodayStr())
 
   // ─── Auth listener ──────────────────────────────────────
@@ -269,40 +280,65 @@ export default function App() {
           {/* 顶部 */}
           <div className="mb-7 anim-fade-up">
             <div className="flex items-start justify-between">
-              <div>
+              <div className="flex-1 min-w-0 pr-3">
                 <p className="text-[13px] text-[#BBBBBB] mb-1">{formatDate()}</p>
                 <h1 className="text-[22px] font-semibold text-[#1A1A1A]">
-                  早上好，{userProfile.name}。
+                  {getTimeGreeting(userProfile.name)}
                 </h1>
+                {activeGoal && (
+                  <p className="text-[13px] text-[#AAAAAA] mt-1 truncate">
+                    {activeGoal.goal}
+                  </p>
+                )}
               </div>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-0.5 flex-shrink-0">
                 <button
                   onClick={() => setShowOnboarding(true)}
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] text-[#888] text-[18px] leading-none active:opacity-60 flex-shrink-0"
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] text-[#888] text-[18px] leading-none active:opacity-60"
                   title="新建目标"
                 >
                   +
                 </button>
+                {/* Profile avatar button */}
                 <button
-                  onClick={() => supabase.auth.signOut()}
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] active:opacity-60 flex-shrink-0"
-                  title="退出登录"
+                  onClick={() => setShowProfile(true)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-[#1A1A1A] active:opacity-70"
+                  title="个人主页"
                 >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M5 12H2.5C2.1 12 1.75 11.85 1.5 11.6C1.25 11.35 1.1 11 1.1 10.6V3.4C1.1 3 1.25 2.65 1.5 2.4C1.75 2.15 2.1 2 2.5 2H5M9.5 10L12.9 7L9.5 4M12.9 7H5" stroke="#AAAAAA" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
+                  <span className="text-white text-[12px] font-semibold">
+                    {(userProfile.name || '你')[0].toUpperCase()}
+                  </span>
                 </button>
               </div>
             </div>
-            {tasksLoading ? (
-              <p className="text-[15px] text-[#888] mt-1">AI 正在生成你今天的任务…</p>
-            ) : !allDone ? (
-              <p className="text-[15px] text-[#888] mt-1">
-                今天有 {pending.length} 件事等着你。
-              </p>
-            ) : (
-              <p className="text-[15px] text-[#888] mt-1">今天全做完了。</p>
-            )}
+
+            {/* Progress bar + subtitle */}
+            <div className="mt-3">
+              {tasksLoading ? (
+                <p className="text-[14px] text-[#888]">AI 正在生成你今天的任务…</p>
+              ) : tasks.length === 0 ? null : !allDone ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[14px] text-[#888]">
+                      今天有 {pending.length} 件事等着你
+                    </p>
+                    <span className="text-[12px] text-[#BBBBBB]">
+                      {done.length}/{tasks.length}
+                    </span>
+                  </div>
+                  {tasks.length > 0 && (
+                    <div className="w-full h-1 bg-[#E8E6E0] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-[#1A1A1A] rounded-full transition-all duration-500"
+                        style={{ width: `${Math.round((done.length / tasks.length) * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[14px] text-[#888]">今天全做完了 🎉</p>
+              )}
+            </div>
           </div>
 
           {/* 任务列表 */}
@@ -312,6 +348,13 @@ export default function App() {
                 <div key={i} className="bg-white rounded-2xl border border-[#E8E6E0] h-24 animate-pulse" />
               ))}
             </div>
+          ) : tasks.length === 0 ? (
+            /* 空状态 */
+            <EmptyState
+              goal={activeGoal?.goal}
+              onNewGoal={() => setShowOnboarding(true)}
+              onChat={() => setChatTask({ id: 'free', type: 'action', emoji: '✦', title: '聊聊我的目标', description: '' })}
+            />
           ) : (
             <div className="space-y-3">
               {primary && (
@@ -362,17 +405,24 @@ export default function App() {
                   <AllDoneSection
                     streak={userProfile.streak}
                     onChat={task => setChatTask(task ?? { id: 'free', type: 'action', emoji: '✦', title: '自由提问', description: '' })}
-                    onSignOut={() => supabase.auth.signOut()}
                   />
                 </div>
               )}
             </div>
           )}
 
-          {/* Streak */}
-          {!allDone && !tasksLoading && (
-            <div className="mt-8 flex items-center justify-center gap-2 anim-fade-in" style={{ animationDelay: '400ms' }}>
-              <span className="text-[13px] text-[#BBBBBB]">连续第 {userProfile.streak} 天</span>
+          {/* Streak + day count footer */}
+          {!allDone && !tasksLoading && tasks.length > 0 && (
+            <div className="mt-8 flex items-center justify-center gap-3 anim-fade-in" style={{ animationDelay: '400ms' }}>
+              {activeGoal && (
+                <>
+                  <span className="text-[13px] text-[#BBBBBB]">
+                    第 {getDayNumber(activeGoal.created_at)} 天
+                  </span>
+                  <span className="text-[#DDDDDD]">·</span>
+                </>
+              )}
+              <span className="text-[13px] text-[#BBBBBB]">连续 {userProfile.streak} 天</span>
               <span className="text-base">🔥</span>
             </div>
           )}
@@ -397,6 +447,17 @@ export default function App() {
         <Onboarding
           onDone={handleOnboardingDone}
           onCancel={activeGoal ? () => setShowOnboarding(false) : null}
+        />
+      )}
+
+      {/* Profile Sheet */}
+      {showProfile && (
+        <ProfileSheet
+          userId={session.user.id}
+          userProfile={userProfile}
+          activeGoal={activeGoal}
+          streak={userProfile.streak}
+          onClose={() => setShowProfile(false)}
         />
       )}
     </div>
@@ -464,10 +525,10 @@ function TooHardCard({ task, onStart, onChat }) {
 }
 
 // ─── 全部完成区域 ─────────────────────────────────────────────
-function AllDoneSection({ streak, onChat, onSignOut }) {
+function AllDoneSection({ streak, onChat }) {
   return (
     <div>
-      <div className="bg-[#1A1A1A] rounded-2xl px-6 py-6 mb-4 text-center">
+      <div className="bg-[#1A1A1A] rounded-2xl px-6 py-6 text-center">
         <p className="text-white text-[20px] font-semibold mb-1">全做完了。</p>
         <p className="text-white/50 text-[14px] mb-4">连续第 {streak} 天 🔥</p>
         <button
@@ -480,14 +541,46 @@ function AllDoneSection({ streak, onChat, onSignOut }) {
           和 AI 教练聊聊今天的收获
         </button>
       </div>
-      <div className="flex justify-center mt-4">
-        <button
-          onClick={onSignOut}
-          className="text-[12px] text-[#BBBBBB] active:text-[#888]"
-        >
-          退出登录
-        </button>
+    </div>
+  )
+}
+
+// ─── 空状态 ──────────────────────────────────────────────────
+function EmptyState({ goal, onNewGoal, onChat }) {
+  return (
+    <div className="anim-fade-up pt-2">
+      <div className="bg-white rounded-2xl border border-[#E8E6E0] px-6 py-8 text-center mb-4">
+        <div className="text-3xl mb-4">✦</div>
+        {goal ? (
+          <>
+            <p className="text-[16px] font-medium text-[#1A1A1A] mb-2">任务正在生成中</p>
+            <p className="text-[14px] text-[#888] leading-relaxed mb-1">目标：{goal}</p>
+            <p className="text-[13px] text-[#BBBBBB]">刷新页面看看</p>
+          </>
+        ) : (
+          <>
+            <p className="text-[16px] font-medium text-[#1A1A1A] mb-2">还没有设定目标</p>
+            <p className="text-[13px] text-[#888] mb-5">告诉我你想做什么，我来帮你拆解成每天的行动。</p>
+            <button
+              onClick={onNewGoal}
+              className="bg-[#1A1A1A] text-white rounded-xl px-6 py-3 text-[14px] font-medium active:opacity-80"
+            >
+              设定我的目标
+            </button>
+          </>
+        )}
       </div>
+      {goal && (
+        <button
+          onClick={onChat}
+          className="w-full flex items-center justify-center gap-2 py-3 text-[13px] text-[#BBBBBB] active:text-[#888]"
+        >
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <path d="M11 1H2C1.45 1 1 1.45 1 2V9C1 9.55 1.45 10 2 10H4L6.5 12.5L9 10H11C11.55 10 12 9.55 12 9V2C12 1.45 11.55 1 11 1Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          </svg>
+          和 AI 教练聊聊
+        </button>
+      )}
     </div>
   )
 }

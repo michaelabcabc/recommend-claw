@@ -216,3 +216,53 @@ export async function saveSummary(userId, taskId, dateStr, summary) {
     .insert({ user_id: userId, task_id: taskId, date: dateStr, summary })
   if (error) console.error('Failed to save summary:', error)
 }
+
+export async function getRecentSummaries(userId, limit = 8) {
+  const { data, error } = await supabase
+    .from('daily_summaries')
+    .select('id, summary, date')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) return []
+  return data || []
+}
+
+// ─── Stats ──────────────────────────────────────────────────
+
+export async function getActivityDates(userId, days = 14) {
+  const since = new Date()
+  since.setDate(since.getDate() - days + 1)
+  const sinceStr = since.toISOString().slice(0, 10)
+  const { data } = await supabase
+    .from('tasks')
+    .select('date')
+    .eq('user_id', userId)
+    .eq('status', 'done')
+    .gte('date', sinceStr)
+  const set = new Set((data || []).map(t => t.date))
+  return set
+}
+
+export async function getStats(userId) {
+  // Count total completed tasks
+  const { count: totalDone } = await supabase
+    .from('tasks')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('status', 'done')
+
+  // Get distinct active days
+  const { data: daysData } = await supabase
+    .from('tasks')
+    .select('date')
+    .eq('user_id', userId)
+    .eq('status', 'done')
+
+  const uniqueDays = new Set((daysData || []).map(t => t.date)).size
+
+  return {
+    totalDone: totalDone || 0,
+    daysActive: uniqueDays,
+  }
+}
