@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { streamChatFromServer } from '../lib/api.js'
+import { chatFromServer } from '../lib/api.js'
 import * as db from '../lib/db.js'
 
 // 按任务类型预置的建议对话
@@ -30,9 +30,6 @@ function Message({ msg }) {
         }`}
       >
         {msg.content}
-        {msg.streaming && (
-          <span className="inline-block w-1 h-3.5 bg-current ml-0.5 animate-pulse rounded-full" />
-        )}
       </div>
     </div>
   )
@@ -42,6 +39,7 @@ export default function ChatPanel({ task, goal, motivation, userId, sessionId, o
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const sessionIdRef = useRef(sessionId)
@@ -50,7 +48,7 @@ export default function ChatPanel({ task, goal, motivation, userId, sessionId, o
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, loading])
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 300)
@@ -78,13 +76,14 @@ export default function ChatPanel({ task, goal, motivation, userId, sessionId, o
     const userText = text ?? input.trim()
     if (!userText || loading) return
     setInput('')
+    setError(null)
 
     const userMsg = { role: 'user', content: userText }
     const history = [...messages, userMsg]
     setMessages(history)
     setLoading(true)
 
-    // Persist user message (non-blocking, don't crash if DB fails)
+    // Persist user message (non-blocking)
     let sid = null
     try {
       sid = await getOrCreateSession()
@@ -93,43 +92,26 @@ export default function ChatPanel({ task, goal, motivation, userId, sessionId, o
       console.error('Failed to save message to DB:', err)
     }
 
-    // Append streaming assistant placeholder
-    setMessages(prev => [...prev, { role: 'assistant', content: '', streaming: true }])
-
     const apiMessages = history.map(m => ({ role: m.role, content: m.content }))
 
-    let finalContent = ''
-    await streamChatFromServer({
-      messages: apiMessages,
-      goal,
-      motivation,
-      task,
-      onDelta: (delta) => {
-        finalContent += delta
-        setMessages(prev => {
-          const last = prev[prev.length - 1]
-          return [...prev.slice(0, -1), { ...last, content: last.content + delta }]
-        })
-      },
-      onDone: async () => {
-        setMessages(prev => {
-          const last = prev[prev.length - 1]
-          return [...prev.slice(0, -1), { ...last, streaming: false }]
-        })
-        setLoading(false)
-        if (sid && finalContent) {
-          try { await db.saveMessage(sid, userId, 'assistant', finalContent) } catch (_) {}
-        }
-      },
-      onError: (err) => {
-        setMessages(prev => [
-          ...prev.slice(0, -1),
-          { role: 'assistant', content: '网络出现了问题，请稍后重试。' },
-        ])
-        setLoading(false)
-        console.error(err)
-      },
-    })
+    try {
+      const responseText = await chatFromServer({
+        messages: apiMessages,
+        goal,
+        motivation,
+        task,
+      })
+      const assistantMsg = { role: 'assistant', content: responseText }
+      setMessages(prev => [...prev, assistantMsg])
+      if (sid && responseText) {
+        try { await db.saveMessage(sid, userId, 'assistant', responseText) } catch (_) {}
+      }
+    } catch (err) {
+      setError(err.message || '请求失败，请重试')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -181,7 +163,41 @@ export default function ChatPanel({ task, goal, motivation, userId, sessionId, o
             <Message key={i} msg={msg} />
           ))}
 
-          {messages.length > 0 && messages.length % 2 === 0 && !loading && (
+          {/* 加载指示器 */}
+          {loading && (
+            <div className="flex justify-start mb-3">
+              <div className="bg-white border border-[#E8E6E0] rounded-2xl rounded-bl-sm px-4 py-3">
+                <div className="flex gap-1 items-center h-5">
+                  {[0, 1, 2].map(i => (
+                    <div
+                      key={i}
+                      className="w-1.5 h-1.5 rounded-full bg-[#CCCCCC] animate-bounce"
+                      style={{ animationDelay: `${i * 140}ms` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 错误提示 */}
+          {error && (
+            <div className="flex flex-col items-center py-2 gap-2">
+              <p className="text-[12px] text-red-400">{error}</p>
+              <button
+                onClick={() => {
+                  setError(null)
+                  const last = messages.filter(m => m.role === 'user').pop()
+                  if (last) send(last.content)
+                }}
+                className="text-[12px] text-[#1A1A1A] border border-[#E8E6E0] rounded-full px-4 py-1.5 bg-white active:opacity-60"
+              >
+                重试
+              </button>
+            </div>
+          )}
+
+          {messages.length > 0 && messages.length % 2 === 0 && !loading && !error && (
             <div className="flex flex-wrap gap-1.5 mt-3 mb-1">
               {suggested.slice(0, 2).map((s) => (
                 <button

@@ -1,21 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
-import { streamChatFromServer } from '../lib/api.js'
+import { chatFromServer } from '../lib/api.js'
 
 /**
  * LearningSession — 互动式 AI 学习会话
  *
- * 取代静态的 ContentReader，提供真正的对话式学习体验：
  * AI 先讲解概念 → 用户随意提问 → 充分理解后点「学完了」
  */
 export default function LearningSession({ task, goal, motivation, onComplete, onBack }) {
   const [messages, setMessages] = useState([])       // { role: 'user'|'assistant', text }
   const [input, setInput] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [streamingText, setStreamingText] = useState('')
+  const [loading, setLoading] = useState(false)
   const [userTurnCount, setUserTurnCount] = useState(0)
   const [phase, setPhase] = useState('learning')     // 'learning' | 'done'
   const [reflection, setReflection] = useState('')
   const [visible, setVisible] = useState(false)
+  const [error, setError] = useState(null)
 
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
@@ -26,48 +25,38 @@ export default function LearningSession({ task, goal, motivation, onComplete, on
     requestAnimationFrame(() => setVisible(true))
     if (!hasStarted.current) {
       hasStarted.current = true
-      // AI 自动开始讲解概念
-      callAI([{ role: 'user', content: '请开始讲解今天的内容' }], true)
+      callAI([{ role: 'user', content: '请开始讲解今天的内容' }])
     }
   }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streaming, streamingText])
+  }, [messages, loading])
 
   // ─── 调用 AI ─────────────────────────────────────────────────
-  async function callAI(apiMessages, isInitial = false) {
-    setStreaming(true)
-    setStreamingText('')
-    let fullText = ''
-
-    await streamChatFromServer({
-      messages: apiMessages,
-      goal: goal || '',
-      motivation: motivation || '',
-      task: { ...task, learningMode: true },
-      onDelta: (delta) => {
-        fullText += delta
-        setStreamingText(fullText)
-      },
-      onDone: () => {
-        setMessages(prev => [...prev, { role: 'assistant', text: fullText }])
-        setStreamingText('')
-        setStreaming(false)
-        if (!isInitial) setTimeout(() => inputRef.current?.focus(), 100)
-      },
-      onError: () => {
-        setStreaming(false)
-        const fallback = `「${task.concept || task.title}」是今天的学习主题。\n\n这是一个重要的基础概念，理解它之后很多东西会豁然开朗。\n\n你有什么不清楚的吗？直接问我。`
-        setMessages(prev => [...prev, { role: 'assistant', text: fallback }])
-      },
-    })
+  async function callAI(apiMessages) {
+    setLoading(true)
+    setError(null)
+    try {
+      const text = await chatFromServer({
+        messages: apiMessages,
+        goal: goal || '',
+        motivation: motivation || '',
+        task: { ...task, learningMode: true },
+      })
+      setMessages(prev => [...prev, { role: 'assistant', text }])
+      setTimeout(() => inputRef.current?.focus(), 100)
+    } catch (err) {
+      setError(err.message || '请求失败，请重试')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // ─── 发送消息 ─────────────────────────────────────────────────
   function handleSend() {
     const text = input.trim()
-    if (!text || streaming) return
+    if (!text || loading) return
 
     const updatedMessages = [...messages, { role: 'user', text }]
     setMessages(updatedMessages)
@@ -76,6 +65,16 @@ export default function LearningSession({ task, goal, motivation, onComplete, on
 
     const apiMessages = updatedMessages.map(m => ({ role: m.role, content: m.text }))
     callAI(apiMessages)
+  }
+
+  // ─── 重试 ─────────────────────────────────────────────────────
+  function handleRetry() {
+    const apiMessages = messages.map(m => ({ role: m.role, content: m.text }))
+    if (apiMessages.length === 0) {
+      callAI([{ role: 'user', content: '请开始讲解今天的内容' }])
+    } else {
+      callAI(apiMessages)
+    }
   }
 
   // ─── 完成学习 → 反思页 ────────────────────────────────────────
@@ -87,7 +86,7 @@ export default function LearningSession({ task, goal, motivation, onComplete, on
     onComplete(task, reflection.trim() || null)
   }
 
-  const canComplete = userTurnCount >= 1 && !streaming
+  const canComplete = userTurnCount >= 1 && !loading
 
   // ─── 完成/反思页 ──────────────────────────────────────────────
   if (phase === 'done') {
@@ -191,30 +190,41 @@ export default function LearningSession({ task, goal, motivation, onComplete, on
           </div>
         ))}
 
-        {/* 流式输出气泡 */}
-        {streaming && (
+        {/* 加载指示器 */}
+        {loading && (
           <div className="flex items-end gap-2">
             <div className="w-7 h-7 rounded-full bg-[#1A1A1A] flex items-center justify-center flex-shrink-0">
               <span className="text-white text-[10px] font-bold">AI</span>
             </div>
-            <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-sm bg-white border border-[#E8E6E0] text-[14px] leading-relaxed text-[#1A1A1A] shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
-              {streamingText || (
-                <div className="flex gap-1 items-center h-5">
-                  {[0, 1, 2].map(i => (
-                    <div
-                      key={i}
-                      className="w-1.5 h-1.5 rounded-full bg-[#CCCCCC] animate-bounce"
-                      style={{ animationDelay: `${i * 140}ms` }}
-                    />
-                  ))}
-                </div>
-              )}
+            <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-sm bg-white border border-[#E8E6E0] shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+              <div className="flex gap-1 items-center h-5">
+                {[0, 1, 2].map(i => (
+                  <div
+                    key={i}
+                    className="w-1.5 h-1.5 rounded-full bg-[#CCCCCC] animate-bounce"
+                    style={{ animationDelay: `${i * 140}ms` }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         )}
 
+        {/* 错误提示 */}
+        {error && (
+          <div className="flex flex-col items-center py-3 gap-2">
+            <p className="text-[12px] text-red-400">{error}</p>
+            <button
+              onClick={handleRetry}
+              className="text-[12px] text-[#1A1A1A] border border-[#E8E6E0] rounded-full px-4 py-1.5 bg-white active:opacity-60"
+            >
+              重试
+            </button>
+          </div>
+        )}
+
         {/* AI 讲解完毕后的提示 */}
-        {messages.length >= 1 && !streaming && userTurnCount === 0 && (
+        {messages.length >= 1 && !loading && !error && userTurnCount === 0 && (
           <div className="text-center py-3">
             <p className="text-[12px] text-[#BBBBBB]">💬 有疑问就问，没问题就点右上角「学完了」</p>
           </div>
@@ -241,12 +251,12 @@ export default function LearningSession({ task, goal, motivation, onComplete, on
               rows={1}
               className="w-full bg-transparent text-[14px] text-[#1A1A1A] placeholder:text-[#BBBBBB] resize-none outline-none leading-relaxed"
               style={{ maxHeight: '80px', overflowY: 'auto' }}
-              disabled={streaming}
+              disabled={loading}
             />
           </div>
           <button
             onClick={handleSend}
-            disabled={streaming || !input.trim()}
+            disabled={loading || !input.trim()}
             className="w-10 h-10 rounded-full bg-[#1A1A1A] flex items-center justify-center flex-shrink-0 disabled:opacity-30 active:opacity-70 transition-opacity"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">

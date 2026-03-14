@@ -53,29 +53,6 @@ function extractJSON(text) {
   return null
 }
 
-function getFallback(messages) {
-  const userMsgs = messages.filter(m => m.role === 'user')
-  if (userMsgs.length === 0) return '你好！最近有什么想改变或者想达成的目标吗？'
-  const firstGoal = userMsgs[0]?.content || ''
-  const isHealth = /减肥|运动|体重|健身|瘦/.test(firstGoal)
-  const isLearn = /学|了解|掌握|懂|课/.test(firstGoal)
-  if (userMsgs.length === 1) {
-    if (isHealth) return `好的！你现在大概多重？想减到多少公斤？`
-    if (isLearn) return `想了解一下，你想重点学哪方面？给我说说你的方向。`
-    return `听起来不错！具体是什么样的目标呢？能说得再具体一点吗？`
-  }
-  if (userMsgs.length === 2) {
-    if (isHealth) return `给自己多长时间？比如3个月还是半年？`
-    if (isLearn) return `你现在是完全零基础，还是有一些了解了？`
-    return `有没有具体的截止时间或者里程碑目标？`
-  }
-  if (userMsgs.length === 3) {
-    if (isLearn) return `学完之后，你最希望能做到什么？`
-    return `每天大概有多少时间可以投入？哪怕 15 分钟也算。`
-  }
-  return `每天大概有多少时间可以投入？哪怕 15 分钟也算。`
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -91,31 +68,24 @@ export default async function handler(req, res) {
     return res.status(200).json({ message: '你好！最近有什么想改变或者想达成的目标吗？', collected: false, goal: null })
   }
 
-  try {
-    const response = await openai.chat.completions.create({
-      model: MODEL,
-      max_tokens: 500,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...messages,
-      ],
-    })
+  const response = await openai.chat.completions.create({
+    model: MODEL,
+    max_tokens: 500,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      ...messages,
+    ],
+  })
 
-    const raw = response.choices[0].message.content
-    const data = extractJSON(raw)
-    if (!data || !data.reply) throw new Error('Empty reply')
-
-    return res.status(200).json({
-      message: data.reply,
-      collected: data.collected === true,
-      goal: data.goal || null,
-    })
-  } catch (err) {
-    console.error('discover-goal error:', err.message)
-    return res.status(200).json({
-      message: getFallback(messages),
-      collected: false,
-      goal: null,
-    })
+  const raw = response.choices[0].message.content
+  const data = extractJSON(raw)
+  if (!data || !data.reply) {
+    return res.status(500).json({ error: 'AI 回复解析失败', raw })
   }
+
+  return res.status(200).json({
+    message: data.reply,
+    collected: data.collected === true,
+    goal: data.goal || null,
+  })
 }

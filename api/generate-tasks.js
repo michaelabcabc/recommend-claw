@@ -21,52 +21,6 @@ function extractJSON(text) {
   return null
 }
 
-// ─── Fallback 任务（API 失败时使用）─────────────────────────────
-function buildFallbackTasks({ goal, category, motivation, daily_minutes, day_number }) {
-  const categoryLabel = CATEGORY_LABELS[category] || '个人目标'
-  const emoji = CATEGORY_EMOJIS[category] || '✦'
-  const readTime = Math.min(15, Math.max(5, Math.round(daily_minutes * 0.4)))
-  const actionTime = Math.max(10, Math.round(daily_minutes * 0.4))
-
-  if (category === 'learn') {
-    const conceptsByDay = [
-      '货币是什么？钱的本质', '通货膨胀的原理', '利率与资产价格的关系',
-      '什么是GDP', '中央银行的作用', '什么是股票', '股价如何形成',
-      '市盈率（PE）是什么', '什么是指数基金', '价值投资的核心思想',
-    ]
-    const concept = conceptsByDay[(day_number - 1) % conceptsByDay.length]
-    return [
-      { priority: 1, type: 'content', emoji: '📖', title: concept, badge: `第 ${day_number} 天`,
-        concept: concept, description: `今天深入学习这个概念`, duration: `${readTime} 分钟`,
-        goal_label: categoryLabel, content: null,
-        completion_message: `学完了！\n\n把今天的概念用自己的话说一遍，是最快的记忆方法。` },
-      { priority: 2, type: 'action', emoji: '✏️', title: '用自己的话复述',
-        badge: null, concept: null, description: '把学到的写下来，测试是否真的理解',
-        duration: '5 分钟', goal_label: categoryLabel, content: null,
-        completion_message: `写下来的东西才真正属于你。` },
-      { priority: 3, type: 'action', emoji: '🔍', title: '找一个现实例子',
-        badge: null, concept: null, description: '在新闻或生活中找今天概念的真实案例',
-        duration: `${actionTime} 分钟`, goal_label: categoryLabel, content: null,
-        completion_message: `真正的理解来自实际应用。` },
-    ]
-  }
-
-  return [
-    { priority: 1, type: 'action', emoji, title: `今日行动：${goal.slice(0, 12)}`,
-      badge: null, concept: null, description: `专注${actionTime}分钟，向目标迈一步`,
-      duration: `${actionTime} 分钟`, goal_label: categoryLabel, content: null,
-      completion_message: `完成了！\n\n每一次行动都是进步，哪怕很小。` },
-    { priority: 2, type: 'content', emoji: '📖', title: `学一个相关概念`, badge: `第 ${day_number} 天`,
-      concept: `${categoryLabel}核心知识`, description: '了解今天任务背后的原理',
-      duration: `${readTime} 分钟`, goal_label: categoryLabel, content: null,
-      completion_message: `理解背后的原理，让行动更有方向。` },
-    { priority: 3, type: 'action', emoji: '📝', title: '记录今天的进展',
-      badge: null, concept: null, description: '写下今天做了什么，有什么收获',
-      duration: '5 分钟', goal_label: categoryLabel, content: null,
-      completion_message: `记录是进步的镜子。` },
-  ]
-}
-
 // ─── 构建 prompt ──────────────────────────────────────────────
 function buildPrompt({ goal, category, categoryLabel, emoji, motivation, daily_minutes, day_number, recentDone, today_date }) {
   const readTime = Math.min(15, Math.max(5, Math.round(daily_minutes * 0.4)))
@@ -151,31 +105,26 @@ export default async function handler(req, res) {
     ? `\n最近已完成（避免重复）：${completed_task_titles.slice(0, 10).join('、')}`
     : ''
 
-  try {
-    const response = await openai.chat.completions.create({
-      model: MODEL,
-      max_tokens: 1500,
-      messages: [{
-        role: 'user',
-        content: buildPrompt({ goal, category, categoryLabel, emoji, motivation, daily_minutes, day_number, recentDone, today_date }),
-      }],
-    })
+  const response = await openai.chat.completions.create({
+    model: MODEL,
+    max_tokens: 1500,
+    messages: [{
+      role: 'user',
+      content: buildPrompt({ goal, category, categoryLabel, emoji, motivation, daily_minutes, day_number, recentDone, today_date }),
+    }],
+  })
 
-    const raw = response.choices[0].message.content.trim()
-    const parsed = extractJSON(raw)
-    if (!parsed || !parsed.tasks || !Array.isArray(parsed.tasks)) throw new Error('Invalid tasks format')
-
-    // 确保所有 content 类型的任务不带预生成内容（强制为 null）
-    const tasks = parsed.tasks.map(t => ({
-      ...t,
-      content: t.type === 'content' ? null : t.content,
-    }))
-
-    return res.status(200).json({ tasks })
-  } catch (err) {
-    console.error('Task generation error:', err.message)
-    return res.status(200).json({
-      tasks: buildFallbackTasks({ goal, category, motivation, daily_minutes, day_number }),
-    })
+  const raw = response.choices[0].message.content.trim()
+  const parsed = extractJSON(raw)
+  if (!parsed || !parsed.tasks || !Array.isArray(parsed.tasks)) {
+    return res.status(500).json({ error: 'AI 返回格式错误，请重试', raw })
   }
+
+  // 确保所有 content 类型的任务不带预生成内容（强制为 null）
+  const tasks = parsed.tasks.map(t => ({
+    ...t,
+    content: t.type === 'content' ? null : t.content,
+  }))
+
+  return res.status(200).json({ tasks })
 }
