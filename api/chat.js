@@ -1,6 +1,6 @@
-import OpenAI from 'openai'
+import Anthropic from '@anthropic-ai/sdk'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 function buildSystemPrompt({ goal, motivation, task }) {
   const base = `你是用户的私人 AI 教练，帮助他们实现目标：「${goal}」。
@@ -51,43 +51,38 @@ export default async function handler(req, res) {
     return res.status(200).end()
   }
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   res.setHeader('Access-Control-Allow-Origin', '*')
-
-  const { messages, goal, motivation, task } = req.body
-  if (!messages || !task) {
-    return res.status(400).json({ error: 'Missing required fields' })
-  }
-
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
 
+  const { messages, goal, motivation, task } = req.body
+  if (!messages || !task) {
+    res.write(`data: ${JSON.stringify({ delta: '出错了，请稍后再试。' })}\n\n`)
+    res.write('data: [DONE]\n\n')
+    return res.end()
+  }
+
   try {
     const systemPrompt = buildSystemPrompt({ goal: goal || '', motivation: motivation || '', task })
 
-    const stream = await openai.chat.completions.create({
-      model: 'gpt-4o',
+    const stream = anthropic.messages.stream({
+      model: 'claude-opus-4-5',
       max_tokens: 512,
-      stream: true,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
+      system: systemPrompt,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
     })
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content || ''
-      if (delta) {
-        res.write(`data: ${JSON.stringify({ delta })}\n\n`)
-      }
-    }
+    stream.on('text', (text) => {
+      res.write(`data: ${JSON.stringify({ delta: text })}\n\n`)
+    })
+
+    await stream.finalMessage()
     res.write('data: [DONE]\n\n')
   } catch (err) {
-    console.error('OpenAI API error:', err.message)
+    console.error('Anthropic API error:', err.message)
     const fallback = getFallbackCoachResponse(task, messages)
     res.write(`data: ${JSON.stringify({ delta: fallback })}\n\n`)
     res.write('data: [DONE]\n\n')
