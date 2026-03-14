@@ -5,7 +5,7 @@ const openai = new OpenAI({
   baseURL: process.env.API_RELAY_BASE_URL || 'http://1.95.142.151:3000/v1',
 })
 
-const MODEL = 'claude-3-5-sonnet-20241022'
+const MODEL = 'claude-sonnet-4-5-20250929'
 
 function buildSystemPrompt({ goal, motivation, task }) {
   const base = `你是用户的私人 AI 教练，帮助他们实现目标：「${goal}」。

@@ -5,7 +5,7 @@ const openai = new OpenAI({
   baseURL: process.env.API_RELAY_BASE_URL || 'http://1.95.142.151:3000/v1',
 })
 
-const MODEL = 'claude-3-5-sonnet-20241022'
+const MODEL = 'claude-sonnet-4-5-20250929'
 
 const SYSTEM_PROMPT = `你是一个帮助用户明确目标的 AI 教练。通过自然对话了解用户想做什么、为什么想做、每天有多少时间，然后生成可执行计划。
 
