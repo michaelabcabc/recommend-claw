@@ -75,6 +75,16 @@ function buildPrompt({ goal, category, categoryLabel, mainEmoji, motivation, dai
 要求：任务具体可执行，时间总和不超过${daily_minutes}分钟，所有内容用中文。`
 }
 
+function extractJSON(text) {
+  try { return JSON.parse(text) } catch {}
+  const mdMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (mdMatch) { try { return JSON.parse(mdMatch[1].trim()) } catch {} }
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start !== -1 && end !== -1) { try { return JSON.parse(text.slice(start, end + 1)) } catch {} }
+  return null
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -101,7 +111,6 @@ export default async function handler(req, res) {
     const response = await openai.chat.completions.create({
       model: MODEL,
       max_tokens: 2500,
-      response_format: { type: 'json_object' },
       messages: [{
         role: 'user',
         content: buildPrompt({ goal, category, categoryLabel, mainEmoji, motivation, daily_minutes, day_number, recentDone, today_date }),
@@ -109,8 +118,8 @@ export default async function handler(req, res) {
     })
 
     const raw = response.choices[0].message.content.trim()
-    const parsed = JSON.parse(raw)
-    if (!parsed.tasks || !Array.isArray(parsed.tasks)) throw new Error('Invalid tasks format')
+    const parsed = extractJSON(raw)
+    if (!parsed || !parsed.tasks || !Array.isArray(parsed.tasks)) throw new Error('Invalid tasks format')
     return res.status(200).json(parsed)
   } catch (err) {
     console.error('Task generation error:', err.message)
