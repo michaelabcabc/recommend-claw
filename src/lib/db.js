@@ -266,3 +266,31 @@ export async function getStats(userId) {
     daysActive: uniqueDays,
   }
 }
+
+// ─── Notes ──────────────────────────────────────────────────
+
+export async function createNote(userId, content, category = 'thought') {
+  const { data, error } = await supabase
+    .from('notes')
+    .insert({ user_id: userId, content, category })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function getNotes(userId, limit = 50) {
+  const { data, error } = await supabase
+    .from('notes')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) return []
+  return data || []
+}
+
+export async function deleteNote(id) {
+  const { error } = await supabase.from('notes').delete().eq('id', id)
+  if (error) console.error('Failed to delete note:', error)
+}

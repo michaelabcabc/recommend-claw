@@ -12,7 +12,8 @@ export default function CompletionRitual({ task, doneCount, totalCount, streak, 
     return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [])
 
-  const lines = task.completionMessage.split('\n')
+  const msg = task?.completion_message || task?.completionMessage || '做完了。\n\n每一步都算数。'
+  const lines = msg.split('\n')
   const isAllDone = doneCount === totalCount
 
   return (

@@ -8,7 +8,8 @@ import CompletionRitual from './components/CompletionRitual.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
 import Onboarding from './components/Onboarding.jsx'
 import GoalDiscovery from './components/GoalDiscovery.jsx'
-import FocusTimer from './components/FocusTimer.jsx'
+import ActionSheet from './components/ActionSheet.jsx'
+import NoteSheet from './components/NoteSheet.jsx'
 import Auth from './components/Auth.jsx'
 import ProfileSheet from './components/ProfileSheet.jsx'
 
@@ -61,6 +62,8 @@ export default function App() {
   const [chatSessionId, setChatSessionId] = useState(null)
   const [showProfile, setShowProfile] = useState(false)
   const [showDiscovery, setShowDiscovery] = useState(false)
+  const [showNotes, setShowNotes] = useState(false)
+  const [actionTask, setActionTask] = useState(null) // task being started (action sheet)
   const currentDateRef = useRef(getTodayStr())
 
   // ─── Auth listener ──────────────────────────────────────
@@ -147,11 +150,12 @@ export default function App() {
 
   // ─── Task handlers ───────────────────────────────────────
   function handleStart(task) {
-    setActiveTask(task)
     if (task.type === 'content') {
+      setActiveTask(task)
       setScreen('reader')
     } else {
-      setScreen('focus')
+      // Action tasks: show ActionSheet overlay (no screen switch)
+      setActionTask(task)
     }
   }
 
@@ -255,15 +259,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F7F6F3]">
 
-      {/* ─── Focus Timer ─── */}
-      {screen === 'focus' && activeTask && (
-        <FocusTimer
-          task={activeTask}
-          onComplete={() => completeTask(activeTask)}
-          onBack={() => { setScreen('today'); setActiveTask(null) }}
-        />
-      )}
-
       {/* ─── Content Reader ─── */}
       {screen === 'reader' && activeTask && (
         <ContentReader
@@ -304,6 +299,19 @@ export default function App() {
                 )}
               </div>
               <div className="flex items-center gap-2 mt-0.5 flex-shrink-0">
+                {/* Note button */}
+                <button
+                  onClick={() => setShowNotes(true)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] active:opacity-60"
+                  title="记事本"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M2 2.5C2 2.22 2.22 2 2.5 2H9.5L12 4.5V11.5C12 11.78 11.78 12 11.5 12H2.5C2.22 12 2 11.78 2 11.5V2.5Z" stroke="#888" strokeWidth="1.2" strokeLinejoin="round"/>
+                    <path d="M9 2V5H12" stroke="#888" strokeWidth="1.2" strokeLinejoin="round"/>
+                    <path d="M4.5 6.5H9.5M4.5 8.5H8" stroke="#888" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                </button>
+                {/* New goal button */}
                 <button
                   onClick={() => setShowDiscovery(true)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] text-[#888] text-[18px] leading-none active:opacity-60"
@@ -311,7 +319,7 @@ export default function App() {
                 >
                   +
                 </button>
-                {/* Profile avatar button */}
+                {/* Profile avatar */}
                 <button
                   onClick={() => setShowProfile(true)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-[#1A1A1A] active:opacity-70"
@@ -451,6 +459,23 @@ export default function App() {
           sessionId={chatSessionId}
           onSessionCreated={setChatSessionId}
           onClose={() => { setChatTask(null); setChatSessionId(null) }}
+        />
+      )}
+
+      {/* Action Sheet (行动任务底部弹出) */}
+      {actionTask && (
+        <ActionSheet
+          task={actionTask}
+          onComplete={() => { setActionTask(null); completeTask(actionTask) }}
+          onClose={() => setActionTask(null)}
+        />
+      )}
+
+      {/* Note Sheet */}
+      {showNotes && session && (
+        <NoteSheet
+          userId={session.user.id}
+          onClose={() => setShowNotes(false)}
         />
       )}
 
