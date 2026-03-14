@@ -8,6 +8,7 @@ import CompletionRitual from './components/CompletionRitual.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
 import Onboarding from './components/Onboarding.jsx'
 import GoalDiscovery from './components/GoalDiscovery.jsx'
+import FocusTimer from './components/FocusTimer.jsx'
 import Auth from './components/Auth.jsx'
 import ProfileSheet from './components/ProfileSheet.jsx'
 
@@ -146,11 +147,11 @@ export default function App() {
 
   // ─── Task handlers ───────────────────────────────────────
   function handleStart(task) {
+    setActiveTask(task)
     if (task.type === 'content') {
-      setActiveTask(task)
       setScreen('reader')
     } else {
-      completeTask(task)
+      setScreen('focus')
     }
   }
 
@@ -253,6 +254,15 @@ export default function App() {
   // ─── Render ──────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#F7F6F3]">
+
+      {/* ─── Focus Timer ─── */}
+      {screen === 'focus' && activeTask && (
+        <FocusTimer
+          task={activeTask}
+          onComplete={() => completeTask(activeTask)}
+          onBack={() => { setScreen('today'); setActiveTask(null) }}
+        />
+      )}
 
       {/* ─── Content Reader ─── */}
       {screen === 'reader' && activeTask && (

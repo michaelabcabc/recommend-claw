@@ -2,34 +2,34 @@ import OpenAI from 'openai'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-const SYSTEM_PROMPT = `你是一个帮助用户明确目标的 AI 教练。你的任务是通过自然对话，了解用户真正想做什么、为什么想做、以及他们的时间情况，最终提炼出一个可执行的目标计划。
+const SYSTEM_PROMPT = `你是一个帮助用户明确目标的 AI 教练。通过自然对话了解用户想做什么、为什么、每天有多少时间，然后生成可执行计划。
 
-对话原则：
-- 一次只问一个问题，不要问多个
-- 语气温和、有好奇心，像朋友一样
-- 根据用户的回答追问，挖掘真实动机
-- 当你收集到足够信息（目标、动力、时间、类别）时，输出结构化的目标总结
-- 用中文对话，简洁自然
+规则：
+- 每次只问一个问题，像朋友聊天
+- 语言简短自然，不超过 60 字
+- 收集到「目标内容、核心动力、每天时间」三点信息后，才能设置 collected: true
+- 不要过早结束，至少对话 3 轮
 
-当信息足够时，你必须在回复末尾以此格式输出 JSON（用 <<<JSON_START>>> 和 <<<JSON_END>>> 包裹）：
-<<<JSON_START>>>
+你必须始终以 JSON 格式回复，字段如下：
 {
-  "ready": true,
-  "goal": "用户的目标（一句话，具体）",
-  "category": "learn 或 work 或 health 或 other",
-  "motivation": "核心动力（一句话）",
-  "daily_minutes": 30
+  "reply": "你的对话回复（必填）",
+  "collected": false,
+  "goal": null
 }
-<<<JSON_END>>>
 
-在没有收集到足够信息之前，不要输出 JSON，继续对话。
+当三个信息都收集齐后，将 collected 设为 true，并填写 goal：
+{
+  "reply": "确认语，告诉用户你理解了他的目标",
+  "collected": true,
+  "goal": {
+    "goal": "用户目标的一句话描述（具体，15字以内）",
+    "category": "learn 或 work 或 health 或 other",
+    "motivation": "核心动力一句话",
+    "daily_minutes": 30
+  }
+}
 
-需要收集的信息：
-1. 想做什么（目标方向）
-2. 为什么想做（动力来源）
-3. 每天大概能花多少时间
-
-开场白：直接问用户最近有什么想改变或想达成的事，简短有趣。`
+对话从这里开始，先问一个有趣的开场问题来了解用户想做什么。`
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -40,64 +40,33 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   const { messages } = req.body
-  if (!messages) return res.status(400).json({ error: 'Missing messages' })
-
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('Connection', 'keep-alive')
+  if (!Array.isArray(messages)) return res.status(400).json({ error: 'Missing messages' })
 
   try {
-    const stream = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: 'gpt-4o',
-      max_tokens: 600,
-      stream: true,
+      max_tokens: 500,
+      response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         ...messages,
       ],
     })
 
-    let fullText = ''
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content || ''
-      if (delta) {
-        fullText += delta
-        // Stream only the non-JSON part to the client
-        const jsonStart = fullText.indexOf('<<<JSON_START>>>')
-        if (jsonStart === -1) {
-          // No JSON yet, stream everything
-          res.write(`data: ${JSON.stringify({ delta })}\n\n`)
-        }
-        // Once JSON marker appears, stop streaming text (we'll send goal at end)
-      }
-    }
+    const raw = response.choices[0].message.content
+    const data = JSON.parse(raw)
 
-    // Check if a goal was extracted
-    const jsonMatch = fullText.match(/<<<JSON_START>>>([\s\S]*?)<<<JSON_END>>>/)
-    if (jsonMatch) {
-      try {
-        const goalData = JSON.parse(jsonMatch[1].trim())
-        // Get the text before the JSON block
-        const textPart = fullText.split('<<<JSON_START>>>')[0].trim()
-        if (textPart) {
-          res.write(`data: ${JSON.stringify({ delta: textPart, replace: true })}\n\n`)
-        }
-        res.write(`data: ${JSON.stringify({ goal: goalData })}\n\n`)
-      } catch (_) {
-        // JSON parse failed, just send the text
-        const textPart = fullText.split('<<<JSON_START>>>')[0].trim()
-        if (textPart) {
-          res.write(`data: ${JSON.stringify({ delta: textPart, replace: true })}\n\n`)
-        }
-      }
-    }
-
-    res.write('data: [DONE]\n\n')
+    return res.status(200).json({
+      message: data.reply || '你好，有什么想法想和我分享吗？',
+      collected: data.collected === true,
+      goal: data.goal || null,
+    })
   } catch (err) {
-    console.error('Discover goal error:', err.message)
-    res.write(`data: ${JSON.stringify({ delta: '你最近有什么想改变的事，或者想达成的目标？告诉我，我来帮你拆解成每天的行动。' })}\n\n`)
-    res.write('data: [DONE]\n\n')
-  } finally {
-    res.end()
+    console.error('discover-goal error:', err.message)
+    return res.status(200).json({
+      message: '你最近有什么想改变的事，或者想达成什么目标？',
+      collected: false,
+      goal: null,
+    })
   }
 }
