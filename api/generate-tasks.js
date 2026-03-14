@@ -1,6 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const CATEGORY_LABELS = {
   learn: '学习成长',
@@ -180,23 +180,23 @@ export default async function handler(req, res) {
 - 所有内容必须用中文`
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-opus-4-5',
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
       max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: '你是专业目标教练，严格按照用户要求的 JSON 格式输出，不加任何多余文字。' },
+        { role: 'user', content: prompt },
+      ],
     })
 
-    const raw = response.content[0].text.trim()
-    const jsonMatch = raw.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('No JSON in response')
-
-    const parsed = JSON.parse(jsonMatch[0])
+    const raw = response.choices[0].message.content.trim()
+    const parsed = JSON.parse(raw)
     if (!parsed.tasks || !Array.isArray(parsed.tasks)) throw new Error('Invalid tasks format')
 
     return res.status(200).json(parsed)
   } catch (err) {
     console.error('Task generation error:', err.message)
-    // Smart fallback based on goal category
     return res.status(200).json({
       tasks: buildFallbackTasks({ goal, category, motivation, daily_minutes, day_number }),
     })

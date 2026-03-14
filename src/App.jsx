@@ -7,6 +7,7 @@ import ContentReader from './components/ContentReader.jsx'
 import CompletionRitual from './components/CompletionRitual.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
 import Onboarding from './components/Onboarding.jsx'
+import GoalDiscovery from './components/GoalDiscovery.jsx'
 import Auth from './components/Auth.jsx'
 import ProfileSheet from './components/ProfileSheet.jsx'
 
@@ -58,6 +59,7 @@ export default function App() {
   const [chatTask, setChatTask] = useState(null)
   const [chatSessionId, setChatSessionId] = useState(null)
   const [showProfile, setShowProfile] = useState(false)
+  const [showDiscovery, setShowDiscovery] = useState(false)
   const currentDateRef = useRef(getTodayStr())
 
   // ─── Auth listener ──────────────────────────────────────
@@ -94,7 +96,7 @@ export default function App() {
       if (goal) {
         loadTasksForToday(user.id, goal)
       } else {
-        setShowOnboarding(true)
+        setShowDiscovery(true)
       }
     } catch (err) {
       console.error('Failed to load user data:', err)
@@ -293,7 +295,7 @@ export default function App() {
               </div>
               <div className="flex items-center gap-2 mt-0.5 flex-shrink-0">
                 <button
-                  onClick={() => setShowOnboarding(true)}
+                  onClick={() => setShowDiscovery(true)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#E8E6E0] text-[#888] text-[18px] leading-none active:opacity-60"
                   title="新建目标"
                 >
@@ -352,7 +354,7 @@ export default function App() {
             /* 空状态 */
             <EmptyState
               goal={activeGoal?.goal}
-              onNewGoal={() => setShowOnboarding(true)}
+              onNewGoal={() => setShowDiscovery(true)}
               onChat={() => setChatTask({ id: 'free', type: 'action', emoji: '✦', title: '聊聊我的目标', description: '' })}
             />
           ) : (
@@ -442,7 +444,18 @@ export default function App() {
         />
       )}
 
-      {/* Onboarding 弹出层 */}
+      {/* Goal Discovery 对话流程 */}
+      {showDiscovery && (
+        <GoalDiscovery
+          onGoalReady={async (form) => {
+            setShowDiscovery(false)
+            await handleOnboardingDone(form)
+          }}
+          onCancel={activeGoal ? () => setShowDiscovery(false) : null}
+        />
+      )}
+
+      {/* Onboarding 弹出层（保留用于直接填写入口） */}
       {showOnboarding && (
         <Onboarding
           onDone={handleOnboardingDone}
