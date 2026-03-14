@@ -3,17 +3,17 @@ import { useState, useEffect, useRef } from 'react'
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 export default function GoalDiscovery({ onGoalReady, onCancel }) {
-  const [messages, setMessages] = useState([])   // { role, content } — sent to API
-  const [bubbles, setBubbles]   = useState([])   // { role, text } — displayed
+  const [messages, setMessages] = useState([])   // { role, content } — 传给 API
+  const [bubbles, setBubbles]   = useState([])   // { role, text, error? } — 显示用
   const [input, setInput]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [visible, setVisible]   = useState(false)
   const [goal, setGoal]         = useState(null)
+  const [hasError, setHasError] = useState(false)
   const hasFetched = useRef(false)
   const bottomRef  = useRef(null)
   const inputRef   = useRef(null)
 
-  // Slide up + initial AI message
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))
     if (!hasFetched.current) {
@@ -22,20 +22,24 @@ export default function GoalDiscovery({ onGoalReady, onCancel }) {
     }
   }, [])
 
-  // Scroll to bottom whenever content changes
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [bubbles, loading])
 
   async function askAI(history) {
     setLoading(true)
+    setHasError(false)
     try {
       const res = await fetch(`${API_BASE}/api/discover-goal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: history }),
       })
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
       const data = await res.json()
+      if (!data.message) throw new Error('Empty response')
 
       const aiMsg = { role: 'assistant', content: data.message }
       setMessages(prev => [...prev, aiMsg])
@@ -46,12 +50,26 @@ export default function GoalDiscovery({ onGoalReady, onCancel }) {
       }
     } catch (err) {
       console.error('GoalDiscovery error:', err)
-      const fallback = '你好！最近有什么想改变或者想达成的目标？'
-      setMessages(prev => [...prev, { role: 'assistant', content: fallback }])
+      setHasError(true)
+      // 根据对话轮次给有意义的兜底回复，而不是重复同一句话
+      const userCount = history.filter(m => m.role === 'user').length
+      let fallback
+      if (userCount === 0) {
+        fallback = '你好！最近有什么想改变或者想达成的目标吗？'
+      } else if (userCount === 1) {
+        const lastUser = history.filter(m => m.role === 'user')[0]?.content || ''
+        fallback = `听起来不错！是什么让你想开始「${lastUser.slice(0, 15)}」这件事呢？`
+      } else if (userCount === 2) {
+        fallback = '每天大概有多少时间可以投入在这上面？哪怕 15 分钟也可以。'
+      } else {
+        fallback = '好的，我来帮你整理一下目标计划。'
+      }
       setBubbles(prev => [...prev, { role: 'assistant', text: fallback }])
+      // 把兜底回复也加入消息历史，保证上下文连续
+      setMessages(prev => [...prev, { role: 'assistant', content: fallback }])
     } finally {
       setLoading(false)
-      setTimeout(() => inputRef.current?.focus(), 80)
+      setTimeout(() => inputRef.current?.focus(), 100)
     }
   }
 
@@ -79,7 +97,12 @@ export default function GoalDiscovery({ onGoalReady, onCancel }) {
     })
   }
 
-  const categoryLabels = { learn: '学习成长', work: '工作项目', health: '健康习惯', other: '个人目标' }
+  const categoryLabels = {
+    learn:  '学习成长',
+    work:   '工作项目',
+    health: '健康习惯',
+    other:  '个人目标',
+  }
 
   return (
     <>
@@ -137,7 +160,7 @@ export default function GoalDiscovery({ onGoalReady, onCancel }) {
             </div>
           ))}
 
-          {/* Typing indicator */}
+          {/* 打字指示器 */}
           {loading && (
             <div className="flex items-end gap-2">
               <div className="w-7 h-7 rounded-full bg-[#1A1A1A] flex items-center justify-center flex-shrink-0">
@@ -145,16 +168,19 @@ export default function GoalDiscovery({ onGoalReady, onCancel }) {
               </div>
               <div className="bg-white rounded-2xl rounded-bl-sm px-4 py-3 border border-[#E8E6E0]">
                 <div className="flex gap-1 items-center h-4">
-                  {[0,1,2].map(i => (
-                    <div key={i} className="w-1.5 h-1.5 rounded-full bg-[#CCCCCC] animate-bounce"
-                      style={{ animationDelay: `${i * 140}ms` }} />
+                  {[0, 1, 2].map(i => (
+                    <div
+                      key={i}
+                      className="w-1.5 h-1.5 rounded-full bg-[#CCCCCC] animate-bounce"
+                      style={{ animationDelay: `${i * 140}ms` }}
+                    />
                   ))}
                 </div>
               </div>
             </div>
           )}
 
-          {/* Goal confirmation card */}
+          {/* 目标确认卡 */}
           {goal && !loading && (
             <div className="bg-[#1A1A1A] rounded-2xl px-5 py-5 mt-1">
               <p className="text-white/50 text-[11px] font-medium uppercase tracking-wider mb-3">我理解你的目标是</p>
@@ -186,7 +212,12 @@ export default function GoalDiscovery({ onGoalReady, onCancel }) {
                   ref={inputRef}
                   value={input}
                   onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }}}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      send()
+                    }
+                  }}
                   placeholder="说说你的想法…"
                   rows={1}
                   className="w-full bg-transparent text-[14px] text-[#1A1A1A] placeholder:text-[#BBBBBB] resize-none outline-none leading-relaxed"
