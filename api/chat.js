@@ -14,7 +14,28 @@ function buildSystemPrompt({ goal, motivation, task }) {
 你的风格：
 - 简洁、有温度，像一个懂你的朋友
 - 不说废话，每次回复聚焦在一个关键点
-- 用中文回复，每次回复控制在 150 字以内`
+- 用中文回复`
+
+  // 学习模式：AI 主导讲解概念，用户可以提问
+  if (task.learningMode) {
+    return `${base}
+
+你今天的角色是「学习教练」，专门讲解这个概念：
+📚 主题：「${task.title}」
+${task.concept ? `一句话描述：${task.concept}` : ''}
+
+教学方式：
+- 第一条回复：给出完整清晰的概念解释（约 200 字），结构是：
+  ① 这个概念是什么（定义）
+  ② 背后的原理是什么（为什么）
+  ③ 一个具体的现实例子（比如真实的市场事件或生活类比）
+  ④ 和用户目标「${goal}」的关联（学这个有什么用）
+- 之后的回复：耐心回答用户问题，每次不超过 150 字，用日常类比解释复杂概念
+- 偶尔反问「你觉得为什么会这样？」来加深理解
+- 如果用户说「懂了」「学完了」「明白了」，给一句简短的总结要点
+
+回复风格：不要用数字序号列表，用自然流畅的段落。`
+  }
 
   if (task.type === 'content') {
     return `${base}
@@ -22,23 +43,23 @@ function buildSystemPrompt({ goal, motivation, task }) {
 当前任务是学习内容：「${task.title}」
 ${task.concept ? `核心概念：${task.concept}` : ''}
 
-帮助用户理解这个内容，解答困惑，把抽象概念和用户的实际生活连接起来。`
+帮助用户理解这个内容，解答困惑，把抽象概念和用户的实际生活连接起来。每次回复不超过 150 字。`
   }
 
   return `${base}
 
 当前任务是行动项：「${task.title}」
-帮助用户克服抵触，找到开始的方式，或者在完成后反思收获。`
+帮助用户克服抵触，找到开始的方式，或者在完成后反思收获。每次回复不超过 150 字。`
 }
 
-function getFallbackCoachResponse(task, messages) {
-  const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || ''
-  const isResistance = /抵触|不想|太难|做不到|放弃|没意思|没动力/.test(lastUserMsg)
-  const isQuestion = /什么|怎么|为什么|如何|哪里|谁|能不能|可以吗/.test(lastUserMsg)
-
-  if (isResistance) return `感受到你的抵触了。\n\n这很正常——大脑天生抗拒陌生的事情。\n\n试试这样：只做 5 分钟，5 分钟后你可以停下来。往往开始之后就不想停了。`
-  if (isQuestion && task?.type === 'content') return `这是个好问题。\n\n学习新知识时，最有效的方式是把它和你已经知道的事联系起来。试着问自己：「这和我生活中的什么事情类似？」`
-  if (task?.type === 'content') return `学习这个内容，关键是抓住核心概念，而不是每个字都记住。\n\n先问自己：这节最重要的一句话是什么？写下来，理解就发生了。`
+function getFallbackCoachResponse(task) {
+  if (task?.learningMode) {
+    const concept = task.concept || task.title || '这个概念'
+    return `${concept}是今天的学习主题。\n\n这个概念在金融/投资领域很基础，理解它之后很多东西会豁然开朗。\n\n你有什么不清楚的地方吗？直接问我。`
+  }
+  if (task?.type === 'content') {
+    return `学习新知识时，最有效的方式是把它和你已经知道的事联系起来。\n\n试着问自己：这和我生活中的什么事情类似？`
+  }
   return `迈出第一步是最难的，之后就顺了。\n\n把任务拆成最小的那一步：不是「完成」，而是「开始」。5 分钟的开始，就够了。`
 }
 
@@ -68,7 +89,7 @@ export default async function handler(req, res) {
 
     const stream = await openai.chat.completions.create({
       model: MODEL,
-      max_tokens: 512,
+      max_tokens: task.learningMode ? 800 : 512,
       stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -83,7 +104,7 @@ export default async function handler(req, res) {
     res.write('data: [DONE]\n\n')
   } catch (err) {
     console.error('Chat API error:', err.message)
-    const fallback = getFallbackCoachResponse(task, messages)
+    const fallback = getFallbackCoachResponse(task)
     res.write(`data: ${JSON.stringify({ delta: fallback })}\n\n`)
     res.write('data: [DONE]\n\n')
   } finally {

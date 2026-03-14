@@ -4,6 +4,7 @@ import * as db from './lib/db.js'
 import { generateTasks, refreshTasks } from './lib/api.js'
 import { PrimaryCard, SecondaryCard, DoneCard } from './components/TaskCard.jsx'
 import ContentReader from './components/ContentReader.jsx'
+import LearningSession from './components/LearningSession.jsx'
 import CompletionRitual from './components/CompletionRitual.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
 import Onboarding from './components/Onboarding.jsx'
@@ -58,6 +59,7 @@ export default function App() {
   const [expandedId, setExpandedId] = useState(null)
   const [ritualTask, setRitualTask] = useState(null)
   const [tooHardId, setTooHardId] = useState(null)
+  const [learningTask, setLearningTask] = useState(null)  // 互动式学习会话
   const [chatTask, setChatTask] = useState(null)
   const [chatSessionId, setChatSessionId] = useState(null)
   const [showProfile, setShowProfile] = useState(false)
@@ -151,8 +153,14 @@ export default function App() {
   // ─── Task handlers ───────────────────────────────────────
   function handleStart(task) {
     if (task.type === 'content') {
-      setActiveTask(task)
-      setScreen('reader')
+      // 新任务（content: null）→ 互动式 LearningSession
+      // 旧任务（有 content 数组）→ 保持 ContentReader 向后兼容
+      if (task.content && task.content.length > 0) {
+        setActiveTask(task)
+        setScreen('reader')
+      } else {
+        setLearningTask(task)
+      }
     } else {
       // Action tasks: show ActionSheet overlay (no screen switch)
       setActionTask(task)
@@ -177,12 +185,14 @@ export default function App() {
     setExpandedId(null)
     setChatTask(null)
     setChatSessionId(null)
+    setLearningTask(null)
   }
 
   function handleRitualContinue() {
     setScreen('today')
     setRitualTask(null)
     setActiveTask(null)
+    setLearningTask(null)
   }
 
   function handleDelay(task) {
@@ -259,7 +269,18 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F7F6F3]">
 
-      {/* ─── Content Reader ─── */}
+      {/* ─── Interactive Learning Session（新任务）─── */}
+      {learningTask && screen === 'today' && (
+        <LearningSession
+          task={learningTask}
+          goal={activeGoal?.goal || ''}
+          motivation={activeGoal?.motivation || ''}
+          onComplete={(task, summary) => completeTask(task, summary)}
+          onBack={() => setLearningTask(null)}
+        />
+      )}
+
+      {/* ─── Content Reader（旧任务向后兼容）─── */}
       {screen === 'reader' && activeTask && (
         <ContentReader
           task={activeTask}
